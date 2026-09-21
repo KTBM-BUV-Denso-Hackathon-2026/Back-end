@@ -1,0 +1,86 @@
+# ============================================================================
+# .gitignore — denso_backend (Django project)
+# Ưu tiên số 1: KHÔNG để lộ .env (chứa FIELD_ENCRYPTION_KEY, DB password...)
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# SECRETS & ENVIRONMENT
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+secrets.json
+credentials.json
+
+# ---------------------------------------------------------------------------
+# PYTHON BYTECODE / CACHE
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ---------------------------------------------------------------------------
+# VIRTUAL ENVIRONMENT (nằm trong hoặc cạnh project)
+# ---------------------------------------------------------------------------
+venv/
+.venv/
+env/
+ENV/
+
+# ---------------------------------------------------------------------------
+# DJANGO RUNTIME ARTIFACTS
+# ---------------------------------------------------------------------------
+*.sqlite3
+*.sqlite3-journal
+*.db
+media/
+staticfiles/
+*.log
+*.dump
+*.bak
+
+# Celery beat schedule
+celerybeat-schedule
+celerybeat.pid
+
+# Test / coverage
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.pytest_cache/
+
+# Type checker cache
+.mypy_cache/
+.ruff_cache/
+
+# Packaging
+*.egg-info/
+build/
+dist/
+
+# ---------------------------------------------------------------------------
+# AI-GENERATED FOLDERS
+# ---------------------------------------------------------------------------
+.freebuff/
+.claude/
+.cursor/
+.aider*
+.continue/
+.codeium/
+.windsurf/
+.gemini/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
