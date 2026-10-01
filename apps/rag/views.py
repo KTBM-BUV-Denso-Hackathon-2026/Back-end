@@ -3,6 +3,7 @@ from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIV
 from rest_framework.permissions import IsAuthenticated
 from apps.rag.models import RawData, RagData
 from apps.rag.serializers import RagSerializer
+from celery import current_app
 
 
 """
@@ -42,6 +43,7 @@ class RawDataListView(ListCreateAPIView):
             )
 
             if raw_data:
+                current_app.send_task('process.rag.task', args=[raw_data.id, raw_data.file.url])
                 return 200, {"message": "Raw data created successfully."}
             else:
                 return 400, {"message": "Failed to create raw data."}

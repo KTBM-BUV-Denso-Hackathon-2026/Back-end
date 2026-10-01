@@ -117,7 +117,7 @@ DATABASES = {
     }
 }
 
-DATABASE_ROUTERS = ['denso_backend.config.db.routers.VectorDBRouter']  # Add this line to specify the database router
+DATABASE_ROUTERS = ['config.db.routers.VectorDBRouter']  # Add this line to specify the database router
 
 
 # Password validation
