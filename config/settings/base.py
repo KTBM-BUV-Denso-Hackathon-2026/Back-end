@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 from pathlib import Path
 import os
 import dotenv
+import dj_database_url
 
 dotenv.load_dotenv()  # Load environment variables from .env file
 
@@ -97,7 +98,7 @@ ASGI_APPLICATION = 'config.asgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
-
+"""
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -115,6 +116,20 @@ DATABASES = {
         'HOST': os.getenv('VECTOR_DB_HOST'),
         'PORT': os.getenv('VECTOR_DB_PORT'),
     }
+}
+"""
+
+DATABASES = {
+    'default': dj_database_url.config(
+        default=os.environ.get('MAIN_DATABASE_URL'),  # set ở PythonAnywhere
+        conn_max_age=600,
+        ssl_require=True
+    ),
+    'vector_db': dj_database_url.config(
+            default=os.environ.get('VECTOR_DATABASE_URL'),  # set ở PythonAnywhere
+            conn_max_age=600,
+            ssl_require=True
+    )
 }
 
 DATABASE_ROUTERS = ['config.db.routers.VectorDBRouter']  # Add this line to specify the database router
