@@ -4,6 +4,7 @@ from apps.core.models import UpdateTimestamp, BaseModel
 from django.contrib.postgres.search import SearchVectorField
 from django.contrib.postgres.indexes import GinIndex
 from pgvector.django import VectorField, HnswIndex
+import uuid
 # Create your models here.
 
 Users = get_user_model()
@@ -27,7 +28,9 @@ class RawData(UpdateTimestamp, BaseModel):
         return f"RawData {self.id}: {self.title[:30]}"
 
 
-class RagChunkData(UpdateTimestamp, BaseModel):
+class RagChunkData(UpdateTimestamp):
+    id = models.UUIDField(default=uuid.uuid4, unique=True, primary_key=True, editable=True)
+
     # Mỗi chunk sẽ thuộc về 1 RawData
     raw_data = models.ForeignKey(RawData, on_delete=models.CASCADE, related_name='chunks')
     
