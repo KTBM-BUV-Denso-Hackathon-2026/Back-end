@@ -7,24 +7,72 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
+
+    # App `rag` dùng pgvector (VectorField + index HNSW) nên CI bắt buộc phải có
+    # PostgreSQL đã bật extension `vector` — image dưới đây đã cài sẵn.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: denso
+          POSTGRES_USER: denso
+          POSTGRES_PASSWORD: denso
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U denso -d denso"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Repo này chính là thư mục `denso_backend/`, mà code import theo dạng
+      # `apps.*` / `config.*` -> PYTHONPATH phải là gốc repo.
+      PYTHONPATH: ${{ github.workspace }}
+      DATABASE_URL: postgresql://denso:denso@localhost:5432/denso
+      # CI chạy DEBUG=False nên settings sẽ chặn SECRET_KEY kiểu `django-insecure-*`;
+      # giá trị này là secret tạm, chỉ phục vụ test.
+      SECRET_KEY: ci-only-not-a-real-secret
+      DEBUG: "False"
+      # Khoá Fernet mẫu, chỉ dùng cho CI.
+      FIELD_ENCRYPTION_KEY: "O3d3VCzz6qrNXx1gk99BTkDg4TN6fjdK2E77AqAvmUE="
+      LLM_API_BASE_URL: http://localhost:8100
+      RAG_WORKER_URL: http://localhost:8200
+      RAG_INGEST_MODE: http
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      # Throttle đã tự tắt khi `manage.py test`, đặt rõ cho chắc.
+      THROTTLE_ANON: "1000/min"
+      THROTTLE_USER: "1000/min"
+
     strategy:
-      max-parallel: 4
+      fail-fast: false
+      # Chỉ test đúng phiên bản Python mà venv dev đang dùng (3.9) để CI phản ánh
+      # đúng môi trường thật. Thêm phiên bản khác vào đây khi đã kiểm chứng.
       matrix:
-        python-version: [3.9, 3.11, 3.12, 3.13]
+        python-version: [ "3.9" ]
 
     steps:
     - uses: actions/checkout@v4
+
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install Dependencies
+        cache: pip
+
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements/requirements.txt
-    - name: Run Tests
-      run: |
-        python manage.py test
+        # base.txt = phụ thuộc tối giản của backend (không có torch).
+        pip install -r requirements/base.txt
+
+    - name: Django system check
+      run: python manage.py check --fail-level WARNING
+
+    - name: Check for missing migrations
+      run: python manage.py makemigrations --check --dry-run
+
+    - name: Run tests
+      run: python manage.py test --verbosity=2

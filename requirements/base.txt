@@ -1,0 +1,42 @@
+# Dependencies tối giản để chạy denso_backend (Django API).
+#
+# Dùng cho CI và cho checkout mới — KHÔNG cần torch/sentence-transformers/fastapi
+# (đó là phụ thuộc của llm_api và rag_worker).
+#   pip install -r requirements/base.txt
+#
+# requirements.txt (cùng thư mục) là bản `pip freeze` đầy đủ của cả workspace,
+# chỉ dùng khi muốn tái tạo y hệt môi trường dev.
+
+Django==4.2.30
+djangorestframework==3.16.0
+djangorestframework_simplejwt==5.5.1
+
+# Xác thực: đăng nhập/đăng ký bằng email + JWT (rotation, whitelist refresh token).
+django-allauth==65.10.0
+django-jwt-allauth==1.2.0
+
+# Mã hoá field trong DB (FIELD_ENCRYPTION_KEY).
+django-encrypted-model-fields==0.6.5
+
+# OpenAPI/Swagger UI cho /api-docs/.
+drf-spectacular==0.30.0
+
+# Lọc danh sách bằng query param (/rag/chunks/?raw_data=<uuid>, ...).
+django-filter==25.1
+
+# CORS cho frontend khác origin (mặc định chặn nếu không khai báo).
+django-cors-headers==4.9.0
+
+# PostgreSQL + pgvector. Trên CI dùng bản -binary để khỏi cần build từ source.
+psycopg2-binary==2.9.12
+pgvector==0.4.2
+dj-database-url==3.0.1
+
+# Đọc file .env.
+python-dotenv==1.2.1
+
+# Dùng khi RAG_INGEST_MODE=celery (đẩy task sang rag_worker qua broker).
+celery==5.6.3
+
+# Gọi microservice llm_api qua HTTP.
+requests==2.32.5

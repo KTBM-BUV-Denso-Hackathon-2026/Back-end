@@ -1,130 +1,127 @@
-from django.shortcuts import render
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
-from rest_framework.permissions import IsAuthenticated
-from apps.rag.models import RawData, RagData
-from apps.rag.serializers import RagSerializer
-from celery import current_app
+"""View cho app ``rag``.
 
+- ``/rag/raw-data/``          : tải tài liệu lên (tự động nạp vào vector DB).
+- ``/rag/raw-data/<uuid>/``   : xem / sửa / xoá tài liệu.
+- ``/rag/chunks/``            : xem các chunk đã nạp (chỉ đọc).
+- ``/rag/chunks/<uuid>/``     : xem chi tiết một chunk (chỉ đọc).
 
+Quyền: mọi user đã đăng nhập được đọc; chỉ RAG manager (superuser hoặc
+``level`` = senior engineer/admin) được ghi.
 """
-##########################################
-Raw Data Views
-##########################################
-"""
-# Create your views here.
-class RawDataListView(ListCreateAPIView):
-    queryset = RawData.objects.all()
-    serializer_class = RagSerializer
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request, *args, **kwargs):
+import logging
+
+from django.db.models import Count
+from rest_framework import generics, status
+from rest_framework.response import Response
+
+from apps.core.permissions import IsRAGManager
+from apps.rag import services
+from apps.rag.models import RagChunkData, RawData
+from apps.rag.serializers import (
+    RagChunkDataSerializer,
+    RawDataListSerializer,
+    RawDataSerializer,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class RawDataListCreateView(generics.ListCreateAPIView):
+    """Liệt kê tài liệu và upload tài liệu mới."""
+
+    permission_classes = [IsRAGManager]
+    filterset_fields = ["status", "user"]
+
+    def get_queryset(self):
+        # ``order_by`` tường minh: annotate() làm queryset mất thứ tự mặc định,
+        # khi đó phân trang sẽ trả kết quả không ổn định.
+        queryset = RawData.objects.annotate(
+            chunk_count=Count("chunks", distinct=True)
+        ).order_by("-created_at")
         user = self.request.user
-        if self.request.user.is_superuser:
-            return RawData.objects.all()
-        elif self.request.user.level == 'senior engineer':
-            return RawData.objects.filter(user=user)
-        else:
-            return 400, {"message": "You do not have permission to view this data."}
+        if user.is_superuser or getattr(user, "can_manage_rag", False):
+            return queryset
+        return queryset.filter(user=user)
 
-    def post(self, request, *args, **kwargs):
+    def get_serializer_class(self):
+        return RawDataListSerializer if self.request.method == "GET" else RawDataSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Tạo ``RawData`` rồi kích hoạt nạp dữ liệu sang ``rag_worker``.
+
+        Nếu worker lỗi/không chạy, tài liệu vẫn được tạo nhưng ``status=failed``
+        kèm thông báo trong ``error`` — client biết chính xác chuyện gì xảy ra.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        raw_data = serializer.save(user=request.user)
+
+        ingestion = None
+        ingestion_error = None
+        try:
+            ingestion = services.enqueue_ingestion(raw_data, request=request)
+        except services.IngestionError as exc:
+            ingestion_error = str(exc)
+            # Ghi lại trạng thái thất bại để client đọc được qua API.
+            services.mark_failed(raw_data, ingestion_error)
+            logger.warning("Nạp dữ liệu thất bại cho RawData %s: %s", raw_data.id, exc)
+
+        raw_data.refresh_from_db()
+        data = RawDataSerializer(raw_data).data
+        data["ingestion"] = ingestion or {"status": "failed", "error": ingestion_error}
+        headers = self.get_success_headers(serializer.data)
+        return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+class RawDataDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Xem / sửa / xoá một tài liệu."""
+
+    serializer_class = RawDataSerializer
+    permission_classes = [IsRAGManager]
+    lookup_field = "id"
+
+    def get_queryset(self):
+        queryset = RawData.objects.annotate(
+            chunk_count=Count("chunks", distinct=True)
+        ).order_by("-created_at")
         user = self.request.user
-        if self.request.user.is_superuser or self.request.user.level == 'senior engineer':
-            title = request.data.get('title')
-            description = request.data.get('description')
-            datatype = request.data.get('datatype')
-            file = request.data.get('file')
+        if user.is_superuser or getattr(user, "can_manage_rag", False):
+            return queryset
+        return queryset.filter(user=user)
 
-            raw_data = RawData.objects.create(
-                title=title,
-                description=description,
-                datatype=datatype,
-                file=file,
-                user=user
-            )
 
-            if raw_data:
-                current_app.send_task('process.rag.task', args=[raw_data.id, raw_data.file.url])
-                return 200, {"message": "Raw data created successfully."}
-            else:
-                return 400, {"message": "Failed to create raw data."}
-            #return super().post(request, *args, **kwargs)
+class RagChunkListView(generics.ListAPIView):
+    """Liệt kê chunk đã nạp (chỉ đọc).
 
-class RawDataDetailView(RetrieveUpdateDestroyAPIView):
-    queryset = RawData.objects.all()
-    serializer_class = RagSerializer
-    permission_classes = [IsAuthenticated]
+    Hỗ trợ lọc bằng query param, ví dụ ``/rag/chunks/?raw_data=<uuid>``.
+    Khai báo ``filterset_fields`` là bắt buộc khi đã bật ``DjangoFilterBackend``,
+    nếu không sẽ 500. Còn nếu thiếu cả hai thì query param bị bỏ qua âm thầm và
+    client tưởng đã lọc nhưng thực ra nhận toàn bộ.
+    """
 
-    def get(self, request, id, *args, **kwargs):
+    serializer_class = RagChunkDataSerializer
+    permission_classes = [IsRAGManager]
+    filterset_fields = ["raw_data", "raw_data__user"]
+
+    def get_queryset(self):
+        queryset = RagChunkData.objects.select_related("raw_data")
         user = self.request.user
-        data = RawData.objects.filter(id=id).first()
-        if not data:
-            return 404, {"message": "Data not found."}
-        if self.request.user.is_superuser or self.request.user.level == 'senior engineer' or data.user == user:
-            return data
+        if user.is_superuser or getattr(user, "can_manage_rag", False):
+            return queryset
+        return queryset.filter(raw_data__user=user)
 
-    def put(self, request, id, *args, **kwargs):
+
+class RagChunkDetailView(generics.RetrieveAPIView):
+    """Xem chi tiết một chunk (chỉ đọc)."""
+
+    serializer_class = RagChunkDataSerializer
+    permission_classes = [IsRAGManager]
+    lookup_field = "id"
+
+    def get_queryset(self):
+        queryset = RagChunkData.objects.select_related("raw_data")
         user = self.request.user
-        data = RawData.objects.filter(id=id).first()
-        if not data:
-            return 404, {"message": "Data not found."}
-        if self.request.user.is_superuser or self.request.user.level == 'senior engineer' or data.user == user:
-            title = request.data.get('title')
-            description = request.data.get('description')
-            datatype = request.data.get('datatype')
-            file = request.data.get('file')
-
-            data.title = title if title else data.title
-            data.description = description if description else data.description
-            data.datatype = datatype if datatype else data.datatype
-            data.file = file if file else data.file
-            data.save()
-
-            return 200, {"message": "Raw data updated successfully."}
-        else:
-            return 400, {"message": "You do not have permission to update this data."}
-
-    def delete(self, request, id, *args, **kwargs):
-        user = self.request.user
-        data = RawData.objects.filter(id=id).first()
-        if not data:
-            return 404, {"message": "Data not found."}
-        if self.request.user.is_superuser or self.request.user.level == 'senior engineer' or data.user == user:
-            data.delete()
-            return 200, {"message": "Raw data deleted successfully."}
-        else:
-            return 400, {"message": "You do not have permission to delete this data."}
-
-
-
-"""
-##########################################
-RAG Data Views
-##########################################
-"""        
-class RagListView(ListCreateAPIView):
-    queryset = RagData.objects.all()
-    serializer_class = RagSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, *args, **kwargs):
-        user = self.request.user
-        if user.is_superuser:
-            return RagData.objects.all()
-        else:
-            return 400, {"message": "You do not have permission to view this data."}
-
-
-class RagDetailView(RetrieveUpdateDestroyAPIView):
-    queryset = RagData.objects.all()
-    serializer_class = RagSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, id, *args, **kwargs):
-        user = self.request.user
-        data = RagData.objects.filter(id=id).first()
-        if not data:
-            return 404, {"message": "Data not found."}
-        if user.is_superuser:
-            return data
-        else:
-            return 400, {"message": "You do not have permission to view this data."}
+        if user.is_superuser or getattr(user, "can_manage_rag", False):
+            return queryset
+        return queryset.filter(raw_data__user=user)

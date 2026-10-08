@@ -1,9 +1,25 @@
+"""URL của app ``rag`` (được include dưới tiền tố ``/rag/``)."""
+
 from django.urls import path
-from .views import RagListView, RawDataDetailView, RawDataListView, RagDetailView
+
+from apps.rag.views import (
+    RagChunkDetailView,
+    RagChunkListView,
+    RawDataDetailView,
+    RawDataListCreateView,
+)
 
 urlpatterns = [
-    path('rag-data/', RagListView.as_view(), name='rag-data-list-view'),
-    path('rag-data/<int:id>/', RagDetailView.as_view(), name='rag-data-detail-view'),
-    path('raw-data/', RawDataListView.as_view(), name='raw-data-list-view'),
-    path('raw-data/<int:id>/', RawDataDetailView.as_view(), name='raw-data-detail-view'),
+    path("raw-data/", RawDataListCreateView.as_view(), name="raw-data-list-view"),
+    path(
+        "raw-data/<uuid:id>/",
+        RawDataDetailView.as_view(),
+        name="raw-data-detail-view",
+    ),
+    path("chunks/", RagChunkListView.as_view(), name="rag-chunk-list-view"),
+    path(
+        "chunks/<uuid:id>/",
+        RagChunkDetailView.as_view(),
+        name="rag-chunk-detail-view",
+    ),
 ]
